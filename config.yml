@@ -1,5 +1,5 @@
 debug: false
-token: LWvX9y9WRCvTLF6c4QRUnGajPdafAXZB2R7Y0OZpdOo=
+token: LWvX9y9WRCvTLF6c4QRUnGajPdafAXZB2R7Y0OZpdOo= # random token for testing purposes, no harm can be done
 volumespath: ~/zephyr/volumes
 datapath: ~/zephyr/data
 remote: http://127.0.0.1:8792

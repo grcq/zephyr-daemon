@@ -1,0 +1,12 @@
+debug: false
+token: LWvX9y9WRCvTLF6c4QRUnGajPdafAXZB2R7Y0OZpdOo=
+volumespath: ~/zephyr/volumes
+datapath: ~/zephyr/data
+remote: http://127.0.0.1:8792
+server:
+    bind: 127.0.0.1
+    port: 8083
+    tls:
+        enabled: false
+        cert: ""
+        key: ""

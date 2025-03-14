@@ -1,0 +1,34 @@
+{
+    "id": 1,
+    "uuid": "testing",
+    "name": "Test",
+    "description": "Test description",
+    "docker": {
+        "images": [
+            "testing"
+        ],
+        "start_command": "testing",
+        "stop_command": "testing",
+        "start_config": "{\"started\": \"is now running!\"}",
+        "config_files": [
+            {
+                "path": "server.properties",
+                "content": "\n#Minecraft server properties\n#Thu Jan 01 00:00:00 CET 1970\nserver-ip=0.0.0.0\nserver-port={$PORT}\n"
+            }
+        ]
+    },
+    "variables": [
+        {
+            "name": "SERVER_JAR",
+            "description": "Server jar",
+            "environment_name": "SERVER_JAR",
+            "default_value": "",
+            "type": "string",
+            "rules": [
+                "required",
+                "regex:.*\\.jar"
+            ]
+        }
+    ],
+    "install_script": "\n#!/bin/bash\necho \"Installing server...\"\necho \"Downloading server jar...\"\nwget https://example.com/server.jar\necho \"Server installed!\"\n"
+}

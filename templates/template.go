@@ -28,6 +28,7 @@ type Docker struct {
 	StartCommand string `json:"start_command"`
 	StopCommand  string `json:"stop_command"`
 
+	StartConfig string       `json:"start_config"`
 	ConfigFiles []ConfigFile `json:"config_files"`
 }
 
@@ -40,6 +41,7 @@ type Variable struct {
 	Name            string `json:"name"`
 	Description     string `json:"description"`
 	EnvironmentName string `json:"environment_name"`
+	DefaultValue    string `json:"default_value"`
 
 	Type  string   `json:"type"`
 	Rules []string `json:"rules"`
@@ -78,7 +80,7 @@ func AddTemplate(t Template) error {
 	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/templates")
 
-	b, err := json.Marshal(t)
+	b, err := json.MarshalIndent(t, "", "    ")
 	if err != nil {
 		return err
 	}
@@ -98,4 +100,52 @@ func GetTemplate(id int) (Template, error) {
 	}
 
 	return Template{}, errors.New("template not found")
+}
+
+func NewTestTemplate() Template {
+	return Template{
+		Id:          1,
+		Uuid:        "testing",
+		Name:        "Test",
+		Description: "Test description",
+
+		Docker: Docker{
+			Images: []string{"testing"},
+
+			StartCommand: "testing",
+			StopCommand:  "testing",
+
+			StartConfig: "{\"started\": \"is now running!\"}",
+			ConfigFiles: []ConfigFile{
+				{
+					Path: "server.properties",
+					Content: `
+#Minecraft server properties
+#Thu Jan 01 00:00:00 CET 1970
+server-ip=0.0.0.0
+server-port={$PORT}
+`,
+				},
+			},
+		},
+		Variables: []Variable{
+			{
+				Name:            "SERVER_JAR",
+				Description:     "Server jar",
+				EnvironmentName: "SERVER_JAR",
+				DefaultValue:    "",
+
+				Type:  "string",
+				Rules: []string{"required", "regex:.*\\.jar"},
+			},
+		},
+
+		InstallScript: `
+#!/bin/bash
+echo "Installing server..."
+echo "Downloading server jar..."
+wget https://example.com/server.jar
+echo "Server installed!"
+`,
+	}
 }

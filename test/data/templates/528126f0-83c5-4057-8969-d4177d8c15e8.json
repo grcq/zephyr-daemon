@@ -1,0 +1,27 @@
+{
+    "id": 2,
+    "uuid": "528126f0-83c5-4057-8969-d4177d8c15e8",
+    "name": "Node",
+    "description": "NodeJS",
+    "docker": {
+        "images": [
+            "Node 20|node:20",
+            "Node 18|node:18"
+        ],
+        "start_command": "node .",
+        "stop_command": "stop",
+        "start_config": "{}",
+        "config_files": []
+    },
+    "variables": [
+        {
+            "name": "Packages",
+            "description": "NodeJS packages to install. Separated by commas",
+            "environment_name": "NODE_PACKAGES",
+            "default_value": "",
+            "type": "string",
+            "rules": []
+        }
+    ],
+    "install_script": "#!/bin/bash\r\n\r\nmkdir /data/mnt\r\ncd /data/mnt\r\n\r\napt-get update\r\ntouch index.js"
+}

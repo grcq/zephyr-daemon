@@ -3,6 +3,7 @@ package cmd
 import (
 	"daemon/config"
 	"daemon/router"
+	"daemon/testing"
 	"daemon/utils"
 	"github.com/apex/log"
 	"github.com/spf13/cobra"
@@ -57,6 +58,7 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().StringP("config", "c", config.DefaultPath, "config file path.go")
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug mode")
+	rootCmd.PersistentFlags().BoolP("test", "t", false, "enable testing mode")
 }
 
 func mainRunCmd(cmd *cobra.Command, args []string) {
@@ -70,6 +72,14 @@ func mainRunCmd(cmd *cobra.Command, args []string) {
 
 	c := config.Get()
 	log.WithField("config", c).Info("loaded config")
+
+	if t, _ := cmd.Flags().GetBool("test"); t {
+		log.Info("running in testing mode")
+		c.DataPath = "test/data"
+		c.VolumesPath = "test/volumes"
+
+		testing.RunTests()
+	}
 
 	s := http.Server{
 		Addr:    c.Server.Bind + ":" + strconv.Itoa(c.Server.Port),

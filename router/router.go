@@ -1,6 +1,7 @@
 package router
 
 import (
+	"daemon/router/middleware"
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -29,6 +30,13 @@ func Configure() *gin.Engine {
 		template.GET("/", getTemplates)
 		template.GET("/:id", getTemplate)
 		template.POST("/add", addTemplate)
+	}
+
+	servers := api.Group("/servers")
+	{
+		servers.GET("/:server/ws", middleware.ServerExists(), getServerWs)
+
+		servers.GET("/", getServers)
 	}
 
 	return router

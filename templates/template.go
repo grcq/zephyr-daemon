@@ -8,8 +8,6 @@ import (
 	"os"
 )
 
-var Templates []Template
-
 type Template struct {
 	Id          int    `json:"id"`
 	Uuid        string `json:"uuid"`
@@ -75,8 +73,6 @@ func GetTemplates() ([]Template, error) {
 }
 
 func AddTemplate(t Template) error {
-	Templates = append(Templates, t)
-
 	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/templates")
 
@@ -93,7 +89,8 @@ func AddTemplate(t Template) error {
 }
 
 func GetTemplate(id int) (Template, error) {
-	for _, t := range Templates {
+	templates, _ := GetTemplates()
+	for _, t := range templates {
 		if t.Id == id {
 			return t, nil
 		}

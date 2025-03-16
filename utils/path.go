@@ -2,6 +2,7 @@ package utils
 
 import (
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -26,8 +27,16 @@ func Normalize(path string) string {
 		newPath += p + "/"
 	}
 
+	d, _ := os.Getwd()
+	if !regexp.MustCompile(`^[A-Z]:`).MatchString(newPath) {
+		if !strings.HasPrefix(newPath, "/") {
+			d += "/"
+		}
+		newPath = d + newPath
+	}
+
 	newPath = strings.TrimSuffix(newPath, "/")
-	path = strings.ReplaceAll(path, "/", "\\")
-	path = strings.Replace(path, "~", homeDir, 1)
-	return path
+	newPath = strings.ReplaceAll(newPath, "/", "\\")
+	newPath = strings.Replace(newPath, "~", homeDir, 1)
+	return newPath
 }

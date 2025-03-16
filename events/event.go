@@ -3,7 +3,11 @@ package events
 var (
 	listeners []func(Event)
 
-	// event names here
+	ServerCreated = "server.created"
+	ServerDeleted = "server.deleted"
+
+	ServerInstallStarted  = "server.start_install"
+	ServerInstallFinished = "server.finish_install"
 )
 
 type Event struct {

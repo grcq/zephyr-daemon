@@ -1,22 +1,31 @@
 package events
 
 var (
-	listeners []func(Event)
+	listeners map[string]func(Event)
 
 	ServerCreated = "server.created"
 	ServerDeleted = "server.deleted"
 
 	ServerInstallStarted  = "server.start_install"
 	ServerInstallFinished = "server.finish_install"
+
+	ServerLog = "server.log"
 )
 
 type Event struct {
 	Name    string
-	Payload []interface{}
+	Payload interface{}
 }
 
-func Listen(fn func(Event)) {
-	listeners = append(listeners, fn)
+func Listen(id string, fn func(Event)) func() {
+	listeners[id] = fn
+	return func() {
+		Unlisten(id)
+	}
+}
+
+func Unlisten(id string) {
+	delete(listeners, id)
 }
 
 func New(name string, payload ...interface{}) Event {

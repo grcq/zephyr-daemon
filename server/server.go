@@ -8,6 +8,7 @@ import (
 	"daemon/templates"
 	"daemon/utils"
 	"encoding/json"
+	"errors"
 	"github.com/apex/log"
 	"github.com/docker/docker/api/types/container"
 	image2 "github.com/docker/docker/api/types/image"
@@ -35,6 +36,8 @@ type Server struct {
 
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
+
+	Details Details `json:"-"`
 }
 
 type Resources struct {
@@ -57,7 +60,7 @@ type Allocation struct {
 }
 
 type Details struct {
-	State string `json:"state"`
+	State State `json:"state"`
 
 	Usage struct {
 		Cpu    float64 `json:"cpu"`
@@ -76,91 +79,97 @@ const (
 	Unknown
 )
 
-var stateMap = map[State]string{
-	Running:  "running",
-	Stopped:  "stopped",
-	Starting: "starting",
-	Stopping: "stopping",
-	Unknown:  "unknown",
-}
+var (
+	stateMap = map[State]string{
+		Running:  "running",
+		Stopped:  "stopped",
+		Starting: "starting",
+		Stopping: "stopping",
+		Unknown:  "unknown",
+	}
+	Servers []*Server
+)
 
 func (s State) String() string {
 	return stateMap[s]
 }
 
-func GetServers() ([]Server, error) {
+func init() {
+	Servers = []*Server{}
 	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/servers")
 
 	b, err := os.ReadDir(data)
 	if err != nil {
-		return []Server{}, err
+		return
 	}
 
-	servers := []Server{}
 	for _, f := range b {
 		b, err := os.ReadFile(data + "/" + f.Name())
 		if err != nil {
-			return []Server{}, err
+			continue
 		}
 
-		var s Server
-		if err := json.Unmarshal(b, &s); err != nil {
-			return []Server{}, err
+		var s *Server
+		if err := json.Unmarshal(b, s); err != nil {
+			continue
 		}
 
-		servers = append(servers, s)
+		s.Details = *GetServerDetails(s.DockerId)
+		Servers = append(Servers, s)
 	}
-
-	return servers, nil
 }
 
 func GetServer(id string) (*Server, error) {
-	c := *config.Get()
-	data := utils.Normalize(c.DataPath + "/servers")
 	if len(id) <= 8 {
-		files, err := os.ReadDir(data)
-		if err != nil {
-			return &Server{}, err
-		}
-
-		for _, f := range files {
-			if strings.HasPrefix(f.Name(), id) {
-				id = strings.Split(f.Name(), ".")[0]
-				break
+		for _, s := range Servers {
+			if s.Id == id {
+				return s, nil
 			}
 		}
 
-		if len(id) <= 8 {
-			return &Server{}, os.ErrNotExist
+		return nil, errors.New("server not found")
+	}
+
+	for _, s := range Servers {
+		if s.Uuid == id {
+			return s, nil
 		}
 	}
 
-	b, err := os.ReadFile(data + "/" + id + ".json")
-	if err != nil {
-		return &Server{}, err
-	}
-
-	var s *Server
-	if err := json.Unmarshal(b, s); err != nil {
-		return &Server{}, err
-	}
-
-	return s, nil
+	return nil, errors.New("server not found")
 }
 
-func GetServerDetails(s *Server) *Details {
+func GetServerDetails(id string) *Details {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
 
 	details := &Details{
-		State: "unknown",
+		State: Unknown,
 	}
 
-	if s.DockerId == "" {
+	if id == "" {
 		return details
 	}
 
+	info, err := cli.ContainerInspect(ctx, id)
+	if err != nil {
+		return details
+	}
+
+	switch info.State.Status {
+	case "running":
+		details.State = Running
+	case "exited":
+		details.State = Stopped
+	case "created":
+		details.State = Starting
+	case "dead":
+		details.State = Stopping
+	}
+
+	// todo: usage
+	return details
 }
 
 type InstallProcess struct {
@@ -459,4 +468,160 @@ func (s Server) Logs(follow bool) (io.ReadCloser, error) {
 	}
 
 	return reader, nil
+}
+
+type PowerAction int
+
+const (
+	PowerStart PowerAction = iota
+	PowerStop
+	PowerRestart
+	PowerKill
+)
+
+func (s *Server) Power(action PowerAction) error {
+	cli, _ := env.GetDocker()
+	ctx := context.Background()
+	t, err := templates.GetTemplate(s.Template)
+	if err != nil {
+		return err
+	}
+
+	var conf *struct {
+		Started *string `json:"started"`
+	}
+	if err := json.Unmarshal([]byte(t.Docker.StartConfig), conf); err != nil {
+		return err
+	}
+
+	switch action {
+	case PowerStart:
+		s.Details.State = Starting
+		if err := cli.ContainerStart(ctx, s.DockerId, container.StartOptions{}); err != nil {
+			return err
+		}
+
+		go func() {
+			if conf.Started == nil {
+				return
+			}
+
+			r, err := s.Logs(true)
+			if err != nil {
+				log.WithError(err).Fatal("failed to get logs")
+				return
+			}
+
+			// read lines and check for started message
+			defer func() {
+				if err := r.Close(); err != nil {
+					log.WithError(err).Fatal("failed to close reader")
+				}
+			}()
+
+			for {
+				buf := make([]byte, 1024)
+				n, err := r.Read(buf)
+				if err != nil {
+					log.WithError(err).Fatal("failed to read logs")
+					return
+				}
+
+				if strings.Contains(string(buf[:n]), *conf.Started) {
+					s.Details.State = Running
+					err := r.Close()
+					if err != nil {
+						log.WithError(err).Fatal("failed to close reader")
+					}
+
+					err = s.Save()
+					if err != nil {
+						log.WithError(err).Fatal("failed to save server")
+					}
+					break
+				}
+			}
+		}()
+	case PowerStop:
+		s.Details.State = Stopping
+		go func() {
+			wChan, eChan := cli.ContainerWait(ctx, s.DockerId, container.WaitConditionNotRunning)
+			select {
+			case err := <-eChan:
+				if err != nil {
+					log.WithError(err).Fatal("failed to wait for container")
+				}
+			case <-wChan:
+				s.Details.State = Stopped
+				if err := s.Save(); err != nil {
+					log.WithError(err).Fatal("failed to save server")
+				}
+			}
+		}()
+
+		if err := cli.ContainerStop(ctx, s.DockerId, container.StopOptions{}); err != nil {
+			return err
+		}
+	case PowerRestart:
+		wChan, eChan := cli.ContainerWait(ctx, s.DockerId, container.WaitConditionNotRunning)
+		select {
+		case err := <-eChan:
+			if err != nil {
+				log.WithError(err).Fatal("failed to wait for container")
+			}
+		case <-wChan:
+			s.Details.State = Starting
+			if err := s.Save(); err != nil {
+				log.WithError(err).Fatal("failed to save server")
+			}
+		}
+
+		go func() {
+			if conf.Started == nil {
+				return
+			}
+
+			r, err := s.Logs(true)
+			if err != nil {
+				log.WithError(err).Fatal("failed to get logs")
+				return
+			}
+
+			// read lines and check for started message
+			defer func() {
+				if err := r.Close(); err != nil {
+					log.WithError(err).Fatal("failed to close reader")
+				}
+			}()
+
+			for {
+				buf := make([]byte, 1024)
+				n, err := r.Read(buf)
+				if err != nil {
+					log.WithError(err).Fatal("failed to read logs")
+					return
+				}
+
+				if strings.Contains(string(buf[:n]), *conf.Started) {
+					s.Details.State = Running
+					err := r.Close()
+					if err != nil {
+						log.WithError(err).Fatal("failed to close reader")
+					}
+
+					err = s.Save()
+					if err != nil {
+						log.WithError(err).Fatal("failed to save server")
+					}
+					break
+				}
+			}
+		}()
+
+		if err := cli.ContainerRestart(ctx, s.DockerId, container.StopOptions{}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

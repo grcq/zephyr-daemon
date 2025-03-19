@@ -11,9 +11,6 @@ import (
 	"errors"
 	"github.com/apex/log"
 	"github.com/docker/docker/api/types/container"
-	image2 "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"io"
 	"os"
@@ -37,7 +34,7 @@ type Server struct {
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
 
-	Details Details `json:"-"`
+	State State `json:"state"`
 }
 
 type Resources struct {
@@ -60,13 +57,6 @@ type Allocation struct {
 }
 
 type Details struct {
-	State State `json:"state"`
-
-	Usage struct {
-		Cpu    float64 `json:"cpu"`
-		Memory float64 `json:"memory"`
-		Disk   float64 `json:"disk"`
-	} `json:"usage"`
 }
 
 type State int
@@ -115,7 +105,7 @@ func init() {
 			continue
 		}
 
-		s.Details = *GetServerDetails(s.DockerId)
+		s.State = GetState(s.DockerId)
 		Servers = append(Servers, s)
 	}
 }
@@ -140,41 +130,31 @@ func GetServer(id string) (*Server, error) {
 	return nil, errors.New("server not found")
 }
 
-func GetServerDetails(id string) *Details {
+func GetState(id string) State {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
 
-	details := &Details{
-		State: Unknown,
-	}
-
 	if id == "" {
-		return details
+		return Unknown
 	}
 
 	info, err := cli.ContainerInspect(ctx, id)
 	if err != nil {
-		return details
+		return Unknown
 	}
 
 	switch info.State.Status {
 	case "running":
-		details.State = Running
+		return Running
 	case "exited":
-		details.State = Stopped
+		return Stopped
 	case "created":
-		details.State = Starting
+		return Stopped
 	case "dead":
-		details.State = Stopping
+		return Stopped
 	}
 
-	// todo: usage
-	return details
-}
-
-type InstallProcess struct {
-	Server *Server
-	client *client.Client
+	return Unknown
 }
 
 func CreateServer(name string, description string, template int, image string, startCommand string,
@@ -238,190 +218,6 @@ func CreateServer(name string, description string, template int, image string, s
 	}
 
 	return s, nil
-}
-
-func (i *InstallProcess) installServer(reinstall bool) error {
-	c := *config.Get()
-	cli := i.client
-
-	s := i.Server
-	ctx := context.Background()
-	if reinstall {
-		// todo: remove container
-	}
-
-	var reader io.ReadCloser
-	var err error
-	if reader, err = cli.ImagePull(ctx, s.Container.Image, image2.PullOptions{}); err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(os.Stdout, reader); err != nil {
-
-	}
-
-	volumeDir := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
-	log.Debugf("volume dir: %s", volumeDir)
-	if _, err := os.Stat(volumeDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(volumeDir, 0755); err != nil {
-			return err
-		}
-	}
-
-	log.Debugf("template: %d", s.Template)
-	t, err := templates.GetTemplate(s.Template)
-	if err != nil {
-		return err
-	}
-
-	ev := events.New(events.ServerInstallStarted)
-	ev.Publish()
-	defer func() {
-		ev := events.New(events.ServerInstallFinished, s)
-		ev.Publish()
-	}()
-
-	var envs []string
-	for k, v := range s.Container.Variables {
-		envs = append(envs, k+"="+v)
-	}
-
-	containerConfig := &container.Config{
-		Hostname:     "installer",
-		Image:        s.Container.Image,
-		AttachStderr: true,
-		AttachStdout: true,
-		AttachStdin:  true,
-		OpenStdin:    true,
-		Env:          envs,
-		Cmd: []string{
-			"sh",
-			"/mnt/install/install.sh",
-		},
-	}
-
-	installDir := s.tempInstallDir()
-	hostConfig := &container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Target:   "/mnt/data",
-				Source:   strings.ReplaceAll(volumeDir, "\\", "/"),
-				Type:     mount.TypeBind,
-				ReadOnly: false,
-			},
-			{
-				Target:   "/mnt/install",
-				Source:   strings.ReplaceAll(installDir, "\\", "/"),
-				Type:     mount.TypeBind,
-				ReadOnly: false,
-			},
-		},
-		Resources: container.Resources{
-			Memory:    s.Resources.Memory,
-			CPUShares: s.Resources.Cpu,
-		},
-	}
-	/*defer func() {
-		if err := os.RemoveAll(installDir); err != nil {
-			log.WithError(err).Fatal("failed to remove temp install dir")
-		}
-	}()*/
-
-	log.Debugf("installing server %s", s.Uuid)
-	installScript := []byte(t.InstallScript)
-	if err = os.WriteFile(installDir+"\\install.sh", installScript, 0644); err != nil {
-		return err
-	}
-
-	var response container.CreateResponse
-	if response, err = cli.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, s.Uuid+"_install"); err != nil {
-		return err
-	}
-	i.Server.DockerId = response.ID
-
-	if err = cli.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
-		return err
-	}
-
-	go func(id string) {
-		if err := i.Output(ctx, id); err != nil {
-			log.WithError(err).Fatal("failed to output")
-		}
-	}(response.ID)
-
-	sChan, eChan := cli.ContainerWait(ctx, response.ID, container.WaitConditionNotRunning)
-	select {
-	case err := <-eChan:
-		if err != nil {
-			return err
-		}
-	case <-sChan:
-		log.Debugf("install finished for %s", s.Uuid)
-		if err := cli.ContainerRemove(ctx, response.ID, container.RemoveOptions{
-			Force:         true,
-			RemoveVolumes: false,
-			RemoveLinks:   false,
-		}); err != nil {
-			return err
-		}
-
-		containerConfig.WorkingDir = "/mnt/data"
-		containerConfig.Hostname = s.Uuid
-		containerConfig.Cmd = strings.Split(s.Container.StartupCommand, " ")
-
-		if response, err = cli.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, s.Uuid); err != nil {
-			return err
-		}
-
-		i.Server.DockerId = response.ID
-		if err = cli.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
-			return err
-		}
-
-		s.Container.Installed = true
-		s.UpdatedAt = time.Now().Unix()
-
-		if err := s.Save(); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (i *InstallProcess) Output(ctx context.Context, id string) error {
-	c := *config.Get()
-	cli := i.client
-	reader, err := cli.ContainerLogs(ctx, id, container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     true,
-	})
-	if err != nil {
-		return err
-	}
-	defer func(reader io.ReadCloser) {
-		err := reader.Close()
-		if err != nil {
-			log.WithError(err).Fatal("failed to close reader")
-		}
-	}(reader)
-
-	installLog := utils.Normalize(c.VolumesPath + "/" + i.Server.Uuid + "/install.log")
-	if _, err := os.Create(installLog); err != nil {
-		return err
-	}
-
-	file, err := os.OpenFile(installLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(file, reader); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (s Server) Save() error {
@@ -496,7 +292,7 @@ func (s *Server) Power(action PowerAction) error {
 
 	switch action {
 	case PowerStart:
-		s.Details.State = Starting
+		s.State = Starting
 		if err := cli.ContainerStart(ctx, s.DockerId, container.StartOptions{}); err != nil {
 			return err
 		}
@@ -528,7 +324,7 @@ func (s *Server) Power(action PowerAction) error {
 				}
 
 				if strings.Contains(string(buf[:n]), *conf.Started) {
-					s.Details.State = Running
+					s.State = Running
 					err := r.Close()
 					if err != nil {
 						log.WithError(err).Fatal("failed to close reader")
@@ -543,7 +339,7 @@ func (s *Server) Power(action PowerAction) error {
 			}
 		}()
 	case PowerStop:
-		s.Details.State = Stopping
+		s.State = Stopping
 		go func() {
 			wChan, eChan := cli.ContainerWait(ctx, s.DockerId, container.WaitConditionNotRunning)
 			select {
@@ -552,7 +348,7 @@ func (s *Server) Power(action PowerAction) error {
 					log.WithError(err).Fatal("failed to wait for container")
 				}
 			case <-wChan:
-				s.Details.State = Stopped
+				s.State = Stopped
 				if err := s.Save(); err != nil {
 					log.WithError(err).Fatal("failed to save server")
 				}
@@ -570,7 +366,7 @@ func (s *Server) Power(action PowerAction) error {
 				log.WithError(err).Fatal("failed to wait for container")
 			}
 		case <-wChan:
-			s.Details.State = Starting
+			s.State = Starting
 			if err := s.Save(); err != nil {
 				log.WithError(err).Fatal("failed to save server")
 			}
@@ -603,7 +399,7 @@ func (s *Server) Power(action PowerAction) error {
 				}
 
 				if strings.Contains(string(buf[:n]), *conf.Started) {
-					s.Details.State = Running
+					s.State = Running
 					err := r.Close()
 					if err != nil {
 						log.WithError(err).Fatal("failed to close reader")

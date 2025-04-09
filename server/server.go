@@ -279,7 +279,7 @@ const (
 	PowerKill
 )
 
-func (s *Server) Power(action PowerAction) error {
+func (s Server) Power(action PowerAction) error {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
 	t, err := templates.GetTemplate(s.Template)
@@ -424,4 +424,19 @@ func (s *Server) Power(action PowerAction) error {
 	}
 
 	return nil
+}
+
+func (s Server) GetFiles(path ...string) ([]os.DirEntry, error) {
+	c := *config.Get()
+
+	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
+	if len(path) > 0 {
+		volumesPath += "/" + strings.Join(path, "/")
+	}
+
+	if _, err := os.Stat(volumesPath); os.IsNotExist(err) {
+		return nil, err
+	}
+
+	return os.ReadDir(volumesPath)
 }

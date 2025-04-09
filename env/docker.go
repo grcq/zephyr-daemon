@@ -1,6 +1,7 @@
 package env
 
 import (
+	"context"
 	"github.com/pkg/errors"
 	"sync"
 )
@@ -18,4 +19,21 @@ func GetDocker() (*client.Client, error) {
 		_client, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	})
 	return _client, errors.Wrap(err, "docker: unable to create client")
+}
+
+func IsDockerRunning() bool {
+	cli, err := GetDocker()
+	if err != nil {
+		return false
+	}
+
+	_, err = cli.Ping(context.Background())
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+func StartDocker() error {
+	return nil
 }

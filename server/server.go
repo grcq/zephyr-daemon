@@ -56,9 +56,6 @@ type Allocation struct {
 	Primary bool   `json:"primary"`
 }
 
-type Details struct {
-}
-
 type State int
 
 const (
@@ -84,10 +81,10 @@ func (s State) String() string {
 	return stateMap[s]
 }
 
-func init() {
+func Load(c *config.Config) {
 	Servers = []*Server{}
-	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/servers")
+	log.Debugf("loading servers from %s", data)
 
 	b, err := os.ReadDir(data)
 	if err != nil {
@@ -100,13 +97,20 @@ func init() {
 			continue
 		}
 
-		var s *Server
-		if err := json.Unmarshal(b, s); err != nil {
+		var s Server
+		if err := json.Unmarshal(b, &s); err != nil {
+			log.WithError(err).Errorf("failed to load server %s", f.Name())
 			continue
 		}
 
+		log.Debugf("loaded server %s", s.Uuid)
+
 		s.State = GetState(s.DockerId)
-		Servers = append(Servers, s)
+		if err = s.Save(); err != nil {
+			log.WithError(err).Errorf("failed to save server %s", s.Uuid)
+		}
+
+		Servers = append(Servers, &s)
 	}
 }
 

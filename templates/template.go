@@ -5,6 +5,7 @@ import (
 	"daemon/utils"
 	"encoding/json"
 	"errors"
+	"github.com/apex/log"
 	"os"
 )
 
@@ -48,6 +49,7 @@ type Variable struct {
 func GetTemplates() ([]Template, error) {
 	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/templates")
+	log.Debugf("reading templates from %s", data)
 
 	b, err := os.ReadDir(data)
 	if err != nil {

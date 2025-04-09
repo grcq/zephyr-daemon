@@ -3,6 +3,7 @@ package cmd
 import (
 	"daemon/config"
 	"daemon/router"
+	"daemon/server"
 	"daemon/testing"
 	"daemon/utils"
 	"github.com/apex/log"
@@ -81,6 +82,8 @@ func mainRunCmd(cmd *cobra.Command, args []string) {
 		testing.RunTests()
 	}
 
+	load(c)
+
 	s := http.Server{
 		Addr:    c.Server.Bind + ":" + strconv.Itoa(c.Server.Port),
 		Handler: router.Configure(),
@@ -96,6 +99,10 @@ func mainRunCmd(cmd *cobra.Command, args []string) {
 			log.WithError(err).Fatal("failed to start server")
 		}
 	}
+}
+
+func load(c *config.Config) {
+	server.Load(c)
 }
 
 func initFiles(c *config.Config) {

@@ -184,9 +184,10 @@ func CreateServer(name string, description string, template int, image string, s
 		Allocations: allocations,
 		CreatedAt:   time.Now().Unix(),
 		UpdatedAt:   time.Now().Unix(),
+		State:       Stopped,
 	}
 
-	ev := events.New(events.ServerCreated, s)
+	ev := events.New(events.ServerCreated, s.Uuid)
 	ev.Publish()
 
 	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
@@ -224,7 +225,7 @@ func CreateServer(name string, description string, template int, image string, s
 	return s, nil
 }
 
-func (s Server) Save() error {
+func (s *Server) Save() error {
 	c := *config.Get()
 	data := utils.Normalize(c.DataPath + "/servers")
 
@@ -240,7 +241,7 @@ func (s Server) Save() error {
 	return nil
 }
 
-func (s Server) tempInstallDir() string {
+func (s *Server) tempInstallDir() string {
 	c := *config.Get()
 	dir := utils.Normalize(c.VolumesPath + "/install_" + s.Uuid)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -253,7 +254,7 @@ func (s Server) tempInstallDir() string {
 	return dir
 }
 
-func (s Server) Logs(follow bool) (io.ReadCloser, error) {
+func (s *Server) Logs(follow bool) (io.ReadCloser, error) {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
 
@@ -279,7 +280,7 @@ const (
 	PowerKill
 )
 
-func (s Server) Power(action PowerAction) error {
+func (s *Server) Power(action PowerAction) error {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
 	t, err := templates.GetTemplate(s.Template)
@@ -426,7 +427,7 @@ func (s Server) Power(action PowerAction) error {
 	return nil
 }
 
-func (s Server) GetFiles(path ...string) ([]os.DirEntry, error) {
+func (s *Server) GetFiles(path ...string) ([]os.DirEntry, error) {
 	c := *config.Get()
 
 	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)

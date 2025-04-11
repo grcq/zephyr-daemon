@@ -72,7 +72,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 	ev := events.New(events.ServerInstallStarted)
 	ev.Publish()
 	defer func() {
-		ev := events.New(events.ServerInstallFinished, s)
+		ev := events.New(events.ServerInstallFinished, s.Uuid)
 		ev.Publish()
 	}()
 

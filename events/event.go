@@ -14,7 +14,7 @@ var (
 
 type Event struct {
 	Name    string
-	Payload interface{}
+	Payload []string
 }
 
 func Listen(id string, fn func(Event)) func() {
@@ -28,7 +28,7 @@ func Unlisten(id string) {
 	delete(listeners, id)
 }
 
-func New(name string, payload ...interface{}) Event {
+func New(name string, payload ...string) Event {
 	return Event{
 		Name:    name,
 		Payload: payload,

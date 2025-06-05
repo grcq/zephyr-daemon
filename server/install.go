@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"daemon/config"
 	"daemon/events"
@@ -13,6 +14,7 @@ import (
 	"github.com/docker/docker/client"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,6 +29,8 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 	cli := i.client
 
 	s := i.Server
+	s.State = Installing
+
 	ctx := context.Background()
 	if reinstall {
 		// todo: remove container
@@ -69,17 +73,41 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		return err
 	}
 
-	ev := events.New(events.ServerInstallStarted)
+	ev := events.New(events.ServerInstallStarted, map[string]interface{}{})
 	ev.Publish()
 	defer func() {
-		ev := events.New(events.ServerInstallFinished, s.Uuid)
-		ev.Publish()
+		events.New(events.ServerInstallFinished, s).Publish()
+		events.New(events.ServerLog, map[string]interface{}{
+			"daemon":  true,
+			"message": "Installation process completed successfully",
+		}).Publish()
+
+		err := i.Server.Power(PowerStart)
+		if err != nil {
+			log.WithError(err).Errorf("failed to start server %s after installation", s.Uuid)
+			events.New(events.ServerLog, map[string]interface{}{
+				"daemon":  true,
+				"message": "\u001b[41mFailed to start server after installation: " + err.Error(),
+			})
+		}
 	}()
 
-	var envs []string
+	envs := []string{
+		"IP=" + s.Allocations[0].Ip,
+		"PORT=" + strconv.Itoa(s.Allocations[0].Port),
+		"UUID=" + s.Uuid,
+		"NAME=" + s.Name,
+		"DESCRIPTION=" + s.Description,
+		"IMAGE=" + s.Container.Image,
+	}
 	for k, v := range s.Container.Variables {
 		envs = append(envs, k+"="+v)
 	}
+
+	events.New(events.ServerLog, map[string]interface{}{
+		"daemon":  true,
+		"message": "Starting installation of server",
+	}).Publish()
 
 	containerConfig := &container.Config{
 		Hostname:     "installer",
@@ -133,6 +161,9 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		return err
 	}
 	i.Server.DockerId = response.ID
+	if err = i.Server.Save(); err != nil {
+		log.WithError(err).Warnf("failed to save server %s", s.Uuid)
+	}
 
 	if err = cli.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
 		return err
@@ -164,17 +195,23 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		containerConfig.Hostname = s.Uuid
 		containerConfig.Cmd = strings.Split(s.Container.StartupCommand, " ")
 
+		hostConfig.Mounts = []mount.Mount{
+			{
+				Target:   "/mnt/data",
+				Source:   strings.ReplaceAll(volumeDir, "\\", "/"),
+				Type:     mount.TypeBind,
+				ReadOnly: false,
+			},
+		}
+
 		if response, err = cli.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, s.Uuid); err != nil {
 			return err
 		}
 
-		i.Server.DockerId = response.ID
-		if err = cli.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
-			return err
-		}
-
+		s.DockerId = response.ID
 		s.Container.Installed = true
 		s.UpdatedAt = time.Now().Unix()
+		s.State = Stopped
 
 		if err := s.Save(); err != nil {
 			return err
@@ -187,6 +224,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 func (i *InstallProcess) Output(ctx context.Context, id string) error {
 	c := *config.Get()
 	cli := i.client
+
 	reader, err := cli.ContainerLogs(ctx, id, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -212,9 +250,32 @@ func (i *InstallProcess) Output(ctx context.Context, id string) error {
 		return err
 	}
 
-	if _, err := io.Copy(file, reader); err != nil {
+	defer func(file *os.File) {
+		if err := file.Close(); err != nil {
+			log.WithError(err).Error("failed to close install log file")
+		}
+	}(file)
+
+	// Read the logs and write them to the file, and also publish them as events
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if _, err := file.WriteString(line + "\n"); err != nil {
+			log.WithError(err).Error("failed to write to install log file")
+			return err
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.WithError(err).Error("failed to read install log")
 		return err
 	}
 
+	log.Info("installation process completed successfully")
+	events.New(events.ServerLog, map[string]interface{}{
+		"daemon":  true,
+		"message": "Installation process completed successfully",
+	})
 	return nil
 }

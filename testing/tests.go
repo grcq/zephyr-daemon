@@ -10,8 +10,8 @@ import (
 )
 
 func RunTests() {
-	createTestTemplate()
-	//createTestServer()
+	//createTestTemplate()
+	//go createTestServer()
 }
 
 func createTestTemplate() {
@@ -65,8 +65,8 @@ func createTestServer() {
 	log.Info("Creating test server")
 	s, err := server.CreateServer("Test Server", "This is a test server", 2, "node:20", "node .", server.Resources{
 		Cpu:    100,
-		Memory: 1024 * 1024 * 1024 * 1024,
-		Disk:   1024 * 1024 * 1024 * 1024,
+		Memory: 1024 * 1024 * 1024 * 1024 * 2,
+		Disk:   1024 * 1024 * 1024 * 1024 * 10,
 	}, []server.Allocation{
 		{
 			Ip:      "0.0.0.0",

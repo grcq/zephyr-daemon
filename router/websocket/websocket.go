@@ -19,9 +19,14 @@ type Handler struct {
 }
 
 const (
-	ServerLogEvent = "send console log"
-	ServerCommand  = "send command"
-	ErrorEvent     = "error"
+	ServerLogEvent             = "send console log"
+	ServerCommand              = "send command"
+	ServerStatsEvent           = "send server stats"
+	ServerInstallStartedEvent  = "server install started"
+	ServerInstallFinishedEvent = "server install finished"
+	ServerPowerEvent           = "server power event"
+	ServerCreatedEvent         = "server created"
+	ErrorEvent                 = "error"
 )
 
 type Message struct {

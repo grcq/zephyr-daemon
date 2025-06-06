@@ -190,17 +190,12 @@ func CreateServer(name string, description string, template int, image string, s
 		Allocations: allocations,
 		CreatedAt:   time.Now().Unix(),
 		UpdatedAt:   time.Now().Unix(),
-		State:       Stopped,
 	}
 
-<<<<<<< Updated upstream
-	ev := events.New(events.ServerCreated, s.Uuid)
-=======
-	s.State = Unknown
+	s.State = Stopped
 	Servers = append(Servers, s)
 
 	ev := events.New(events.ServerCreated, s)
->>>>>>> Stashed changes
 	ev.Publish()
 
 	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
@@ -294,8 +289,6 @@ const (
 	PowerKill
 )
 
-<<<<<<< Updated upstream
-=======
 func (p PowerAction) String() string {
 	switch p {
 	case PowerStart:
@@ -311,7 +304,6 @@ func (p PowerAction) String() string {
 	}
 }
 
->>>>>>> Stashed changes
 func (s *Server) Power(action PowerAction) error {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()

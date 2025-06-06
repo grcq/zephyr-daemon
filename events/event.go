@@ -16,7 +16,7 @@ var (
 
 type Event struct {
 	Name    string
-	Payload []string
+	Payload interface{}
 }
 
 func Listen(id string, fn func(Event)) func() {
@@ -30,11 +30,7 @@ func Unlisten(id string) {
 	delete(listeners, id)
 }
 
-<<<<<<< Updated upstream
-func New(name string, payload ...string) Event {
-=======
 func New(name string, payload interface{}) Event {
->>>>>>> Stashed changes
 	return Event{
 		Name:    name,
 		Payload: payload,

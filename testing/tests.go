@@ -11,7 +11,7 @@ import (
 
 func RunTests() {
 	createTestTemplate()
-	go createTestServer()
+	//go createTestServer()
 }
 
 func createTestTemplate() {
@@ -47,7 +47,7 @@ func createTestServer() {
 	volumesPath := c.VolumesPath
 
 	if _, err := os.Stat(serversPath); !os.IsNotExist(err) {
-		log.Info("Removing existing servers")
+		log.Debugf("Removing existing servers")
 		if err := os.RemoveAll(serversPath); err != nil {
 			log.WithError(err).Fatal("failed to remove existing servers")
 			return
@@ -55,14 +55,14 @@ func createTestServer() {
 	}
 
 	if _, err := os.Stat(volumesPath); !os.IsNotExist(err) {
-		log.Info("Removing existing volumes")
+		log.Debugf("Removing existing volumes")
 		if err := os.RemoveAll(volumesPath); err != nil {
 			log.WithError(err).Fatal("failed to remove existing volumes")
 			return
 		}
 	}
 
-	log.Info("Creating test server")
+	log.Debugf("Creating test server")
 	s, err := server.CreateServer("Test Server", "This is a test server", 2, "node:20", "node .", server.Resources{
 		Cpu:    100,
 		Memory: 1024 * 1024 * 1024 * 1024 * 2,

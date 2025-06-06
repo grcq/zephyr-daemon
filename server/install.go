@@ -33,7 +33,6 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 
 	ctx := context.Background()
 	if reinstall {
-		// todo: remove container
 		id := s.DockerId
 		if err := cli.ContainerRemove(ctx, id, container.RemoveOptions{
 			Force:         true,
@@ -73,7 +72,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		return err
 	}
 
-	ev := events.New(events.ServerInstallStarted, map[string]interface{}{})
+	ev := events.New(events.ServerInstallStarted, "")
 	ev.Publish()
 	defer func() {
 		events.New(events.ServerInstallFinished, s).Publish()
@@ -150,7 +149,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		}
 	}()
 
-	log.Debugf("installing server %s", s.Uuid)
+	log.Infof("installing server %s", s.Uuid)
 	installScript := []byte(t.InstallScript)
 	if err = os.WriteFile(installDir+"\\install.sh", installScript, 0644); err != nil {
 		return err
@@ -182,7 +181,6 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 			return err
 		}
 	case <-sChan:
-		log.Debugf("install finished for %s", s.Uuid)
 		if err := cli.ContainerRemove(ctx, response.ID, container.RemoveOptions{
 			Force:         true,
 			RemoveVolumes: false,

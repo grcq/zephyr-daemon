@@ -1,7 +1,7 @@
 package events
 
 var (
-	listeners map[string]func(Event)
+	listeners = make(map[string]func(Event))
 
 	ServerCreated = "server.created"
 	ServerDeleted = "server.deleted"
@@ -9,7 +9,9 @@ var (
 	ServerInstallStarted  = "server.start_install"
 	ServerInstallFinished = "server.finish_install"
 
-	ServerLog = "server.log"
+	PowerEvent  = "server.power_action"
+	ServerLog   = "server.log"
+	ServerStats = "server.stats"
 )
 
 type Event struct {
@@ -28,7 +30,11 @@ func Unlisten(id string) {
 	delete(listeners, id)
 }
 
+<<<<<<< Updated upstream
 func New(name string, payload ...string) Event {
+=======
+func New(name string, payload interface{}) Event {
+>>>>>>> Stashed changes
 	return Event{
 		Name:    name,
 		Payload: payload,

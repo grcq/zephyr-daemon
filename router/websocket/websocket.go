@@ -25,8 +25,8 @@ const (
 )
 
 type Message struct {
-	Event string   `json:"event"`
-	Data  []string `json:"data"`
+	Event string      `json:"event"`
+	Data  interface{} `json:"data"`
 }
 
 func NewHandler(s *server.Server, w http.ResponseWriter, r *http.Request, c *gin.Context) (*Handler, error) {
@@ -91,8 +91,7 @@ func (h *Handler) HandleIncoming(ctx context.Context, msg Message) error {
 						return
 					}
 
-					data := []string{string(line)}
-					if err := h.Write(Message{Event: ServerLogEvent, Data: data}); err != nil {
+					if err := h.Write(Message{Event: ServerLogEvent, Data: line}); err != nil {
 						return
 					}
 				}

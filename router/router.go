@@ -25,6 +25,7 @@ func Configure() *gin.Engine {
 		return ""
 	}))
 
+	api.GET("/ws", getGlobalWs)
 	template := api.Group("/templates")
 	{
 		template.GET("/", getTemplates)

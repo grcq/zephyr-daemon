@@ -10,8 +10,8 @@ import (
 )
 
 func RunTests() {
-	//createTestTemplate()
-	//go createTestServer()
+	createTestTemplate()
+	go createTestServer()
 }
 
 func createTestTemplate() {

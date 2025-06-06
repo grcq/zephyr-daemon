@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"daemon/config"
 	"daemon/env"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/apex/log"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
 	"io"
@@ -35,6 +37,8 @@ type Server struct {
 	UpdatedAt int64 `json:"updated_at"`
 
 	State State `json:"state"`
+
+	Stdin types.HijackedResponse `json:"-"`
 }
 
 type Resources struct {
@@ -63,16 +67,18 @@ const (
 	Stopped
 	Starting
 	Stopping
+	Installing
 	Unknown
 )
 
 var (
 	stateMap = map[State]string{
-		Running:  "running",
-		Stopped:  "stopped",
-		Starting: "starting",
-		Stopping: "stopping",
-		Unknown:  "unknown",
+		Running:    "running",
+		Stopped:    "stopped",
+		Starting:   "starting",
+		Stopping:   "stopping",
+		Installing: "installing",
+		Unknown:    "unknown",
 	}
 	Servers []*Server
 )
@@ -187,7 +193,14 @@ func CreateServer(name string, description string, template int, image string, s
 		State:       Stopped,
 	}
 
+<<<<<<< Updated upstream
 	ev := events.New(events.ServerCreated, s.Uuid)
+=======
+	s.State = Unknown
+	Servers = append(Servers, s)
+
+	ev := events.New(events.ServerCreated, s)
+>>>>>>> Stashed changes
 	ev.Publish()
 
 	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
@@ -262,6 +275,7 @@ func (s *Server) Logs(follow bool) (io.ReadCloser, error) {
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     follow,
+		Since:      time.Now().Format(time.RFC3339),
 	})
 	if err != nil {
 		log.WithError(err).Fatal("failed to get logs")
@@ -280,6 +294,24 @@ const (
 	PowerKill
 )
 
+<<<<<<< Updated upstream
+=======
+func (p PowerAction) String() string {
+	switch p {
+	case PowerStart:
+		return "start"
+	case PowerStop:
+		return "stop"
+	case PowerRestart:
+		return "restart"
+	case PowerKill:
+		return "kill"
+	default:
+		return "unknown"
+	}
+}
+
+>>>>>>> Stashed changes
 func (s *Server) Power(action PowerAction) error {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
@@ -288,19 +320,42 @@ func (s *Server) Power(action PowerAction) error {
 		return err
 	}
 
-	var conf *struct {
+	var conf struct {
 		Started *string `json:"started"`
 	}
-	if err := json.Unmarshal([]byte(t.Docker.StartConfig), conf); err != nil {
+	if err := json.Unmarshal([]byte(t.Docker.StartConfig), &conf); err != nil {
 		return err
 	}
+
+	log.Debugf("received power action: %s for server %s", action.String(), s.Uuid)
+
+	events.New(events.ServerLog, map[string]interface{}{
+		"message": "Received power action '" + action.String() + "' for server.",
+		"daemon":  true,
+	}).Publish()
 
 	switch action {
 	case PowerStart:
 		s.State = Starting
+		events.New(events.PowerEvent, map[string]interface{}{
+			"action": action.String(),
+			"status": Starting.String(),
+		}).Publish()
 		if err := cli.ContainerStart(ctx, s.DockerId, container.StartOptions{}); err != nil {
 			return err
 		}
+
+		attach, err := cli.ContainerAttach(ctx, s.DockerId, container.AttachOptions{
+			Stdin:  true,
+			Stdout: false,
+			Stderr: false,
+			Stream: true,
+		})
+		if err != nil {
+			log.WithError(err).Fatal("failed to attach to container")
+			return err
+		}
+		s.Stdin = attach
 
 		go func() {
 			if conf.Started == nil {
@@ -330,6 +385,10 @@ func (s *Server) Power(action PowerAction) error {
 
 				if strings.Contains(string(buf[:n]), *conf.Started) {
 					s.State = Running
+					events.New(events.PowerEvent, map[string]interface{}{
+						"action": action.String(),
+						"status": Running.String(),
+					}).Publish()
 					err := r.Close()
 					if err != nil {
 						log.WithError(err).Fatal("failed to close reader")
@@ -345,7 +404,35 @@ func (s *Server) Power(action PowerAction) error {
 		}()
 	case PowerStop:
 		s.State = Stopping
+		events.New(events.PowerEvent, map[string]interface{}{
+			"action": action.String(),
+			"status": Stopping.String(),
+		}).Publish()
 		go func() {
+			t, err := templates.GetTemplate(s.Template)
+			if err != nil {
+				log.WithError(err).Fatal("failed to get template")
+				return
+			}
+
+			if t.Docker.StopCommand != "" {
+				cmd := t.Docker.StopCommand
+				stdin := s.Stdin
+				defer stdin.Close()
+
+				if _, err := stdin.Conn.Write([]byte(cmd + "\n")); err != nil {
+					log.WithError(err).Fatal("failed to write stop command to container")
+					return
+				}
+
+				events.New(events.ServerLog, map[string]interface{}{
+					"message": cmd,
+					"daemon":  false,
+				}).Publish()
+			} else {
+				log.Info("no stop command defined in template, skipping")
+			}
+
 			wChan, eChan := cli.ContainerWait(ctx, s.DockerId, container.WaitConditionNotRunning)
 			select {
 			case err := <-eChan:
@@ -354,6 +441,10 @@ func (s *Server) Power(action PowerAction) error {
 				}
 			case <-wChan:
 				s.State = Stopped
+				events.New(events.PowerEvent, map[string]interface{}{
+					"action": action.String(),
+					"status": Stopped.String(),
+				}).Publish()
 				if err := s.Save(); err != nil {
 					log.WithError(err).Fatal("failed to save server")
 				}
@@ -372,6 +463,10 @@ func (s *Server) Power(action PowerAction) error {
 			}
 		case <-wChan:
 			s.State = Starting
+			events.New(events.PowerEvent, map[string]interface{}{
+				"action": action.String(),
+				"status": Starting.String(),
+			}).Publish()
 			if err := s.Save(); err != nil {
 				log.WithError(err).Fatal("failed to save server")
 			}
@@ -405,6 +500,10 @@ func (s *Server) Power(action PowerAction) error {
 
 				if strings.Contains(string(buf[:n]), *conf.Started) {
 					s.State = Running
+					events.New(events.PowerEvent, map[string]interface{}{
+						"action": action.String(),
+						"status": Running.String(),
+					})
 					err := r.Close()
 					if err != nil {
 						log.WithError(err).Fatal("failed to close reader")
@@ -422,6 +521,25 @@ func (s *Server) Power(action PowerAction) error {
 		if err := cli.ContainerRestart(ctx, s.DockerId, container.StopOptions{}); err != nil {
 			return err
 		}
+	case PowerKill:
+		if s.State != Stopping {
+			return errors.New("server is not stopping, cannot kill")
+		}
+
+		if err := cli.ContainerKill(ctx, s.DockerId, "KILL"); err != nil {
+			log.WithError(err).Error("failed to kill container")
+			return err
+		}
+
+		s.State = Stopped
+		events.New(events.PowerEvent, map[string]interface{}{
+			"action": action.String(),
+			"status": Stopped.String(),
+		}).Publish()
+		if err := s.Save(); err != nil {
+			log.WithError(err).Fatal("failed to save server")
+		}
+
 	}
 
 	return nil
@@ -440,4 +558,103 @@ func (s *Server) GetFiles(path ...string) ([]os.DirEntry, error) {
 	}
 
 	return os.ReadDir(volumesPath)
+}
+
+func (s *Server) GetStats() (map[string]interface{}, error) {
+	cli, _ := env.GetDocker()
+	ctx := context.Background()
+
+	info, err := cli.ContainerStats(ctx, s.DockerId, false)
+	if err != nil {
+		return nil, err
+	}
+	defer info.Body.Close()
+
+	stats := make(map[string]interface{})
+	d := json.NewDecoder(info.Body)
+	if err := d.Decode(&stats); err != nil {
+		return nil, err
+	}
+
+	disk, err := cli.DiskUsage(ctx, types.DiskUsageOptions{
+		Types: []types.DiskUsageObject{types.ContainerObject},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if disk.Containers == nil || len(disk.Containers) == 0 {
+		return nil, errors.New("no disk usage information available")
+	}
+
+	for _, c := range disk.Containers {
+		if c.ID == s.DockerId {
+			stats["disk_usage"] = c.SizeRootFs
+			break
+		}
+	}
+
+	inspect, err := cli.ContainerInspect(ctx, s.DockerId)
+	if err != nil {
+		return nil, err
+	}
+
+	if inspect.State == nil {
+		return nil, errors.New("container state is nil")
+	}
+
+	simplifiedStats := map[string]interface{}{
+		"cpu_usage":    stats["cpu_stats"].(map[string]interface{})["cpu_usage"].(map[string]interface{})["total_usage"],
+		"cpu_max":      s.Resources.Cpu,
+		"memory_usage": stats["memory_stats"].(map[string]interface{})["usage"],
+		"memory_max":   s.Resources.Memory,
+		"disk_usage":   stats["disk_usage"],
+		"disk_max":     s.Resources.Disk,
+		"status":       s.State.String(),
+	}
+
+	return simplifiedStats, nil
+}
+
+func (s *Server) GetLogsSinceStart() ([]string, error) {
+	cli, _ := env.GetDocker()
+	ctx := context.Background()
+
+	inspect, err := cli.ContainerInspect(ctx, s.DockerId)
+	if err != nil {
+		return nil, err
+	}
+
+	if !inspect.State.Running {
+		return nil, errors.New("container is not running")
+	}
+
+	start := inspect.State.StartedAt
+	if start == "" {
+		start = time.Now().Format(time.RFC3339)
+	}
+
+	reader, err := cli.ContainerLogs(ctx, s.DockerId, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     false,
+		Since:      start,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	scanner := bufio.NewScanner(reader)
+	var logs []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		logs = append(logs, line)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return logs, nil
 }

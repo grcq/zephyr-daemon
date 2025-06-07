@@ -12,6 +12,7 @@ import (
 	image2 "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"io"
 	"os"
 	"strconv"
@@ -108,6 +109,8 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		"message": "Starting installation of server",
 	}).Publish()
 
+	ip := s.Allocations[0].Ip
+	port := strconv.Itoa(s.Allocations[0].Port)
 	containerConfig := &container.Config{
 		Hostname:     "installer",
 		Image:        s.Container.Image,
@@ -120,6 +123,18 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 			"sh",
 			"/mnt/install/install.sh",
 		},
+		ExposedPorts: map[nat.Port]struct{}{
+			nat.Port(port + "/tcp"): {},
+		},
+	}
+
+	hostBinding := nat.PortBinding{
+		HostIP:   ip,
+		HostPort: port,
+	}
+
+	portBinding := nat.PortMap{
+		nat.Port(port + "/tcp"): []nat.PortBinding{hostBinding},
 	}
 
 	installDir := s.tempInstallDir()
@@ -142,6 +157,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 			Memory:    s.Resources.Memory,
 			CPUShares: s.Resources.Cpu,
 		},
+		PortBindings: portBinding,
 	}
 	defer func() {
 		if err := os.RemoveAll(installDir); err != nil {
@@ -254,7 +270,6 @@ func (i *InstallProcess) Output(ctx context.Context, id string) error {
 		}
 	}(file)
 
-	// Read the logs and write them to the file, and also publish them as events
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -263,6 +278,12 @@ func (i *InstallProcess) Output(ctx context.Context, id string) error {
 			log.WithError(err).Error("failed to write to install log file")
 			return err
 		}
+
+		log.Info(line)
+		events.New(events.ServerLog, map[string]interface{}{
+			"daemon":  false,
+			"message": line,
+		})
 	}
 
 	if err := scanner.Err(); err != nil {

@@ -11,12 +11,7 @@ import (
 )
 
 func getServerWs(c *gin.Context) {
-	id := c.Param("server")
-	s, err := server.GetServer(id)
-	if err != nil || s == nil {
-		c.JSON(404, gin.H{"error": "Server not found"})
-		return
-	}
+	s := c.MustGet("server").(*server.Server)
 
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()

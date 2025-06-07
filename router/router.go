@@ -35,9 +35,16 @@ func Configure() *gin.Engine {
 
 	servers := api.Group("/servers")
 	{
-		servers.GET("/:server/ws", middleware.ServerExists(), getServerWs)
-
 		servers.GET("/", getServers)
+
+		required := servers.Group("/:server", middleware.ServerRequired())
+		required.GET("/ws", getServerWs)
+
+		required.GET("/stats", getServerStats)
+		required.GET("/files", getFiles)
+		required.GET("/files/content", getFileContent)
+
+		required.POST("/files", saveFileContent)
 	}
 
 	return router

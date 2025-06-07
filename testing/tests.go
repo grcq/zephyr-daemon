@@ -10,7 +10,7 @@ import (
 )
 
 func RunTests() {
-	createTestTemplate()
+	//createTestTemplate()
 	//go createTestServer()
 }
 

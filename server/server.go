@@ -92,6 +92,12 @@ func Load(c *config.Config) {
 	data := utils.Normalize(c.DataPath + "/servers")
 	log.Debugf("loading servers from %s", data)
 
+	cli, err := env.GetDocker()
+	if err != nil {
+		log.WithError(err).Fatal("failed to get docker client")
+		return
+	}
+
 	b, err := os.ReadDir(data)
 	if err != nil {
 		return
@@ -114,6 +120,21 @@ func Load(c *config.Config) {
 		s.State = GetState(s.DockerId)
 		if err = s.Save(); err != nil {
 			log.WithError(err).Errorf("failed to save server %s", s.Uuid)
+		}
+
+		if s.State != Stopped {
+			stdin, err := cli.ContainerAttach(context.Background(), s.DockerId, container.AttachOptions{
+				Stdin:  true,
+				Stdout: false,
+				Stderr: false,
+				Stream: true,
+			})
+			if err != nil {
+				log.WithError(err).Errorf("failed to attach to server %s stdin", s.Uuid)
+				s.Stdin = types.HijackedResponse{}
+			} else {
+				s.Stdin = stdin
+			}
 		}
 
 		Servers = append(Servers, &s)
@@ -329,13 +350,14 @@ func (s *Server) Power(action PowerAction) error {
 	switch action {
 	case PowerStart:
 		s.State = Starting
+		if err := cli.ContainerStart(ctx, s.DockerId, container.StartOptions{}); err != nil {
+			return err
+		}
+
 		events.New(events.PowerEvent, map[string]interface{}{
 			"action": action.String(),
 			"status": Starting.String(),
 		}).Publish()
-		if err := cli.ContainerStart(ctx, s.DockerId, container.StartOptions{}); err != nil {
-			return err
-		}
 
 		attach, err := cli.ContainerAttach(ctx, s.DockerId, container.AttachOptions{
 			Stdin:  true,
@@ -348,52 +370,6 @@ func (s *Server) Power(action PowerAction) error {
 			return err
 		}
 		s.Stdin = attach
-
-		go func() {
-			if conf.Started == nil {
-				return
-			}
-
-			r, err := s.Logs(true)
-			if err != nil {
-				log.WithError(err).Fatal("failed to get logs")
-				return
-			}
-
-			// read lines and check for started message
-			defer func() {
-				if err := r.Close(); err != nil {
-					log.WithError(err).Fatal("failed to close reader")
-				}
-			}()
-
-			for {
-				buf := make([]byte, 1024)
-				n, err := r.Read(buf)
-				if err != nil {
-					log.WithError(err).Fatal("failed to read logs")
-					return
-				}
-
-				if strings.Contains(string(buf[:n]), *conf.Started) {
-					s.State = Running
-					events.New(events.PowerEvent, map[string]interface{}{
-						"action": action.String(),
-						"status": Running.String(),
-					}).Publish()
-					err := r.Close()
-					if err != nil {
-						log.WithError(err).Fatal("failed to close reader")
-					}
-
-					err = s.Save()
-					if err != nil {
-						log.WithError(err).Fatal("failed to save server")
-					}
-					break
-				}
-			}
-		}()
 	case PowerStop:
 		s.State = Stopping
 		events.New(events.PowerEvent, map[string]interface{}{
@@ -401,19 +377,14 @@ func (s *Server) Power(action PowerAction) error {
 			"status": Stopping.String(),
 		}).Publish()
 		go func() {
-			t, err := templates.GetTemplate(s.Template)
-			if err != nil {
-				log.WithError(err).Fatal("failed to get template")
-				return
-			}
-
 			if t.Docker.StopCommand != "" {
 				cmd := t.Docker.StopCommand
-				stdin := s.Stdin
-				defer stdin.Close()
-
-				if _, err := stdin.Conn.Write([]byte(cmd + "\n")); err != nil {
-					log.WithError(err).Fatal("failed to write stop command to container")
+				if err := s.Command(cmd); err != nil {
+					log.WithError(err).Error("failed to send stop command to server")
+					events.New(events.ServerLog, map[string]interface{}{
+						"message": "\u001b[41mERROR: Unable to send power action 'stop' to server. " + err.Error(),
+						"daemon":  false,
+					}).Publish()
 					return
 				}
 
@@ -537,21 +508,6 @@ func (s *Server) Power(action PowerAction) error {
 	return nil
 }
 
-func (s *Server) GetFiles(path ...string) ([]os.DirEntry, error) {
-	c := *config.Get()
-
-	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
-	if len(path) > 0 {
-		volumesPath += "/" + strings.Join(path, "/")
-	}
-
-	if _, err := os.Stat(volumesPath); os.IsNotExist(err) {
-		return nil, err
-	}
-
-	return os.ReadDir(volumesPath)
-}
-
 func (s *Server) GetStats() (map[string]interface{}, error) {
 	cli, _ := env.GetDocker()
 	ctx := context.Background()
@@ -649,4 +605,37 @@ func (s *Server) GetLogsSinceStart() ([]string, error) {
 	}
 
 	return logs, nil
+}
+
+func (s *Server) Command(command string) error {
+	_, err := s.Stdin.Conn.Write([]byte(command + "\n"))
+	return err
+}
+
+func (s *Server) Delete(delVolumes bool) error {
+	c := *config.Get()
+	data := utils.Normalize(c.DataPath + "/servers")
+
+	if delVolumes {
+		volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
+		if _, err := os.Stat(volumesPath); !os.IsNotExist(err) {
+			if err := os.RemoveAll(volumesPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := os.Remove(data + "/" + s.Uuid + ".json"); err != nil {
+		return err
+	}
+
+	for i, server := range Servers {
+		if server.Uuid == s.Uuid {
+			Servers = append(Servers[:i], Servers[i+1:]...)
+			break
+		}
+	}
+
+	events.New(events.ServerDeleted, s.Id).Publish()
+	return nil
 }

@@ -30,8 +30,8 @@ type Server struct {
 	Template  int       `json:"template"`
 	Container Container `json:"container"`
 
-	Resources   Resources    `json:"resources"`
-	Allocations []Allocation `json:"allocations"`
+	Resources   Resources        `json:"resources"`
+	Allocations *env.Allocations `json:"allocations"`
 
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
@@ -52,12 +52,6 @@ type Container struct {
 	Image          string            `json:"image"`
 	Installed      bool              `json:"installed"`
 	Variables      map[string]string `json:"variables"`
-}
-
-type Allocation struct {
-	Ip      string `json:"ip"`
-	Port    int    `json:"port"`
-	Primary bool   `json:"primary"`
 }
 
 type State int
@@ -89,7 +83,7 @@ func (s State) String() string {
 
 func Load(c *config.Config) {
 	Servers = []*Server{}
-	data := utils.Normalize(c.DataPath + "/servers")
+	data := utils.Normalize(c.System.DataDirectory + "/servers")
 	log.Debugf("loading servers from %s", data)
 
 	cli, err := env.GetDocker()
@@ -189,7 +183,7 @@ func GetState(id string) State {
 }
 
 func CreateServer(name string, description string, template int, image string, startCommand string,
-	resources Resources, allocations []Allocation, variables map[string]string) (*Server, error) {
+	resources Resources, allocations *env.Allocations, variables map[string]string) (*Server, error) {
 	c := *config.Get()
 
 	sUuid := uuid.New().String()
@@ -219,14 +213,14 @@ func CreateServer(name string, description string, template int, image string, s
 	ev := events.New(events.ServerCreated, s)
 	ev.Publish()
 
-	volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
+	volumesPath := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid)
 	if _, err := os.Stat(volumesPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(volumesPath, 0755); err != nil {
 			return nil, err
 		}
 	}
 
-	path := utils.Normalize(c.DataPath + "/servers")
+	path := utils.Normalize(c.System.DataDirectory + "/servers")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, err
@@ -256,7 +250,7 @@ func CreateServer(name string, description string, template int, image string, s
 
 func (s *Server) Save() error {
 	c := *config.Get()
-	data := utils.Normalize(c.DataPath + "/servers")
+	data := utils.Normalize(c.System.DataDirectory + "/servers")
 
 	b, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
@@ -272,7 +266,7 @@ func (s *Server) Save() error {
 
 func (s *Server) tempInstallDir() string {
 	c := *config.Get()
-	dir := utils.Normalize(c.VolumesPath + "/install_" + s.Uuid)
+	dir := utils.Normalize(c.System.VolumesDirectory + "/install_" + s.Uuid)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			log.WithError(err).Fatal("failed to create temp install dir")
@@ -614,10 +608,10 @@ func (s *Server) Command(command string) error {
 
 func (s *Server) Delete(delVolumes bool) error {
 	c := *config.Get()
-	data := utils.Normalize(c.DataPath + "/servers")
+	data := utils.Normalize(c.System.DataDirectory + "/servers")
 
 	if delVolumes {
-		volumesPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
+		volumesPath := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid)
 		if _, err := os.Stat(volumesPath); !os.IsNotExist(err) {
 			if err := os.RemoveAll(volumesPath); err != nil {
 				return err

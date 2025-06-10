@@ -1,7 +1,4 @@
-debug: false
-token: LWvX9y9WRCvTLF6c4QRUnGajPdafAXZB2R7Y0OZpdOo= # random token for testing purposes, no harm can be done
-volumespath: ~/zephyr/volumes
-datapath: ~/zephyr/data
+token: uya+Pe+fk8J8n2SHwqwh3GaVZ3VdasOd7072R8Q9k7E=
 remote: http://127.0.0.1:8792
 server:
     bind: 127.0.0.1
@@ -10,3 +7,35 @@ server:
         enabled: false
         cert: ""
         key: ""
+system:
+    root_directory: ~/zephyr
+    log_directory: ~/zephyr/logs
+    volumes_directory: ~/zephyr/volumes
+    data_directory: ~/zephyr/data
+    backup_directory: ~/zephyr/backups
+    temp_directory: ~/zephyr/tmp
+docker:
+    network:
+        interface: 0.0.0.0
+        dns:
+            - 1.1.1.1
+            - 1.0.0.1
+        name: zephyr
+        ispn: false
+        ipv6: true
+        driver: bridge
+        network_mode: zephyr
+        internal: false
+        icc: true
+        network_mtu: 1500
+        interfaces:
+            v4:
+                subnet: 172.17.0.0/16
+                gateway: 172.17.0.1
+            v6:
+                subnet: fd00:17f2:8ca3::/64
+                gateway: fd00:17f2:8ca3::1
+    domain_name: ""
+    registries: {}
+    tmpfs_size: 100
+    userns_mode: ""

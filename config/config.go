@@ -3,6 +3,8 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
+	"github.com/mcuadros/go-defaults"
 	"gopkg.in/yaml.v3"
 	"os"
 )
@@ -13,26 +15,35 @@ var (
 )
 
 type Config struct {
-	path        string
-	Debug       bool   `json:"-" default:"false"`
-	Token       string `json:"token"`
-	VolumesPath string `json:"volume"`
-	DataPath    string `json:"data"`
-	Remote      string `json:"remote"`
+	path   string
+	Debug  bool   `yaml:"-" default:"false"`
+	Token  string `yaml:"token"`
+	Remote string `yaml:"remote"`
 
-	Server ServerConfig `json:"server"`
+	Server ServerConfig `yaml:"server"`
+	System SystemConfig `yaml:"system"`
+	Docker DockerConfig `yaml:"docker"`
 }
 
 type ServerConfig struct {
-	Bind string    `json:"bind" default:"127.0.0.1"`
-	Port int       `json:"port" default:"8083"`
-	TLS  TLSConfig `json:"tls"`
+	Bind string    `yaml:"bind" default:"127.0.0.1"`
+	Port int       `yaml:"port" default:"8083"`
+	TLS  TLSConfig `yaml:"tls"`
 }
 
 type TLSConfig struct {
-	Enabled bool   `json:"enabled" default:"false"`
-	Cert    string `json:"cert"`
-	Key     string `json:"key"`
+	Enabled bool   `yaml:"enabled" default:"false"`
+	Cert    string `yaml:"cert" default:""`
+	Key     string `yaml:"key" default:""`
+}
+
+type SystemConfig struct {
+	RootDirectory    string `yaml:"root_directory" default:"~/zephyr"`
+	LogDirectory     string `yaml:"log_directory" default:"~/zephyr/logs"`
+	VolumesDirectory string `yaml:"volumes_directory" default:"~/zephyr/volumes"`
+	DataDirectory    string `yaml:"data_directory" default:"~/zephyr/data"`
+	BackupDirectory  string `yaml:"backup_directory" default:"~/zephyr/backups"`
+	TempDirectory    string `yaml:"temp_directory" default:"~/zephyr/tmp"`
 }
 
 func Load(path string) (*Config, error) {
@@ -64,12 +75,17 @@ func Get() *Config {
 }
 
 func (c *Config) Save() error {
-	b, err := yaml.Marshal(c)
+	ccopy := *c
+	if ccopy.path == "" {
+		return errors.New("config path is not set")
+	}
+
+	b, err := yaml.Marshal(&ccopy)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(c.path, b, 0644)
+	return os.WriteFile(c.path, b, 0o600)
 }
 
 func DefaultConfig(path string) *Config {
@@ -77,23 +93,13 @@ func DefaultConfig(path string) *Config {
 	_, _ = rand.Read(token)
 	tokenStr := base64.StdEncoding.EncodeToString(token)
 
-	c := &Config{
-		path:        path,
-		Debug:       false,
-		Token:       tokenStr,
-		VolumesPath: "~/zephyr/volumes",
-		DataPath:    "~/zephyr/data",
-		Remote:      "http://127.0.0.1:8792",
-		Server: ServerConfig{
-			Bind: "127.0.0.1",
-			Port: 8083,
-			TLS: TLSConfig{
-				Enabled: false,
-				Cert:    "",
-				Key:     "",
-			},
-		},
-	}
+	// generate default config
+	c := &Config{}
+	defaults.SetDefaults(c)
 
+	c.path = path
+	c.Debug = false
+	c.Token = tokenStr
+	c.Remote = "http://127.0.0.1:8792"
 	return c
 }

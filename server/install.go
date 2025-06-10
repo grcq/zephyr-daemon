@@ -11,8 +11,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	image2 "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 	"io"
 	"os"
 	"strconv"
@@ -61,7 +61,7 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		return err
 	}
 
-	volumeDir := utils.Normalize(c.VolumesPath + "/" + s.Uuid)
+	volumeDir := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid)
 	if _, err := os.Stat(volumeDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(volumeDir, 0755); err != nil {
 			return err
@@ -93,8 +93,8 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 	}()
 
 	envs := []string{
-		"IP=" + s.Allocations[0].Ip,
-		"PORT=" + strconv.Itoa(s.Allocations[0].Port),
+		"IP=" + s.Allocations.DefaultMapping.Ip,
+		"PORT=" + strconv.Itoa(s.Allocations.DefaultMapping.Port),
 		"UUID=" + s.Uuid,
 		"NAME=" + s.Name,
 		"DESCRIPTION=" + s.Description,
@@ -109,36 +109,35 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 		"message": "Starting installation of server",
 	}).Publish()
 
-	ip := s.Allocations[0].Ip
-	port := strconv.Itoa(s.Allocations[0].Port)
+	a := s.Allocations
 	containerConfig := &container.Config{
 		Hostname:     "installer",
+		Domainname:   c.Docker.DomainName,
 		Image:        s.Container.Image,
 		AttachStderr: true,
 		AttachStdout: true,
 		AttachStdin:  true,
 		OpenStdin:    true,
+		Tty:          true,
 		Env:          envs,
 		Cmd: []string{
 			"sh",
 			"/mnt/install/install.sh",
 		},
-		ExposedPorts: map[nat.Port]struct{}{
-			nat.Port(port + "/tcp"): {},
-		},
+		ExposedPorts: a.Exposed(),
 	}
 
-	hostBinding := nat.PortBinding{
-		HostIP:   ip,
-		HostPort: port,
-	}
-
-	portBinding := nat.PortMap{
-		nat.Port(port + "/tcp"): []nat.PortBinding{hostBinding},
+	var mode container.NetworkMode
+	if mode, err = i.setupNetwork(ctx, cli, s); err != nil {
+		log.WithError(err).Errorf("failed to setup network for server %s", s.Uuid)
+		return err
 	}
 
 	installDir := s.tempInstallDir()
+	tmpfs := strconv.Itoa(int(c.Docker.TmpfsSize))
+	log.Debugf("port bindings: %v", a.DockerBindings())
 	hostConfig := &container.HostConfig{
+		PortBindings: a.DockerBindings(),
 		Mounts: []mount.Mount{
 			{
 				Target:   "/mnt/data",
@@ -157,7 +156,17 @@ func (i *InstallProcess) installServer(reinstall bool) error {
 			Memory:    s.Resources.Memory,
 			CPUShares: s.Resources.Cpu,
 		},
-		PortBindings: portBinding,
+		Tmpfs: map[string]string{
+			"/tmp": "rw,noexec,nosuid,size=" + tmpfs + "m",
+		},
+		DNS:         c.Docker.Network.Dns,
+		NetworkMode: mode,
+		UsernsMode:  container.UsernsMode(c.Docker.UsernsMode),
+		CapDrop: []string{
+			"setpcap", "mknod", "audit_write", "net_raw", "dac_override",
+			"fowner", "fsetid", "net_bind_service", "sys_chroot", "setfcap",
+		},
+		SecurityOpt: []string{"no-new-privileges"},
 	}
 	defer func() {
 		if err := os.RemoveAll(installDir); err != nil {
@@ -254,7 +263,7 @@ func (i *InstallProcess) Output(ctx context.Context, id string) error {
 		}
 	}(reader)
 
-	installLog := utils.Normalize(c.VolumesPath + "/" + i.Server.Uuid + "/install.log")
+	installLog := utils.Normalize(c.System.VolumesDirectory + "/" + i.Server.Uuid + "/install.log")
 	if _, err := os.Create(installLog); err != nil {
 		return err
 	}
@@ -297,4 +306,40 @@ func (i *InstallProcess) Output(ctx context.Context, id string) error {
 		"message": "Installation process completed successfully",
 	})
 	return nil
+}
+
+func (i *InstallProcess) setupNetwork(ctx context.Context, cli *client.Client, s *Server) (container.NetworkMode, error) {
+	c := *config.Get()
+
+	a := s.Allocations
+	networkMode := container.NetworkMode(c.Docker.Network.Mode)
+	if a.ForceOutgoingIp {
+		networkName := "ip-" + strings.ReplaceAll(strings.ReplaceAll(a.DefaultMapping.Ip, ".", "-"), ":", "-")
+		networkMode = container.NetworkMode(networkName)
+
+		if _, err := cli.NetworkInspect(ctx, networkName, network.InspectOptions{}); err != nil {
+			if !client.IsErrNotFound(err) {
+				return "", err
+			}
+
+			ipv6 := c.Docker.Network.IPv6
+			if _, err := cli.NetworkCreate(ctx, networkName, network.CreateOptions{
+				Driver:     "bridge",
+				EnableIPv6: &ipv6,
+				Internal:   false,
+				Attachable: false,
+				Ingress:    false,
+				ConfigOnly: false,
+				Options: map[string]string{
+					"encryption": "false",
+					"com.docker.network.bridge.default_bridge": "false",
+					"com.docker.network.host_ipv4":             a.DefaultMapping.Ip,
+				},
+			}); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	return networkMode, nil
 }

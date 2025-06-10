@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"daemon/config"
+	"daemon/env"
 	"daemon/router"
 	"daemon/server"
 	"daemon/testing"
@@ -47,6 +49,9 @@ var rootCmd = &cobra.Command{
 			log.Debug("running in debug mode")
 		}
 
+		if err = env.ConfigureDocker(context.Background()); err != nil {
+			log.WithError(err).Fatal("failed to configure docker environment")
+		}
 		initFiles(c)
 	},
 	Run: mainRunCmd,
@@ -76,8 +81,8 @@ func mainRunCmd(cmd *cobra.Command, args []string) {
 
 	if t, _ := cmd.Flags().GetBool("test"); t {
 		log.Info("running in testing mode")
-		c.DataPath = "test/data"
-		c.VolumesPath = "test/volumes"
+		c.System.DataDirectory = "test/data"
+		c.System.VolumesDirectory = "test/volumes"
 
 		testing.RunTests()
 	}
@@ -107,8 +112,8 @@ func load(c *config.Config) {
 
 func initFiles(c *config.Config) {
 	log.Info("initializing files")
-	dataPath := utils.Normalize(c.DataPath)
-	volumesPath := utils.Normalize(c.VolumesPath)
+	dataPath := utils.Normalize(c.System.DataDirectory)
+	volumesPath := utils.Normalize(c.System.VolumesDirectory)
 
 	if _, err := os.Stat(dataPath); os.IsNotExist(err) {
 		log.Debugf("data path.go %s does not exist, creating", dataPath)

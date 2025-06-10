@@ -15,7 +15,7 @@ func (s *Server) ReadFileContent(path string) (string, string, error) {
 		path = "/" + path
 	}
 
-	absPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid + path)
+	absPath := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid + path)
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		return "", "", errors.New("file does not exist: " + absPath)
 	}
@@ -38,7 +38,7 @@ func (s *Server) WriteFileContent(path string, content string) error {
 		path = "/" + path
 	}
 
-	absPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid + path)
+	absPath := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid + path)
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(absPath, 0755); err != nil {
 			return err
@@ -65,7 +65,7 @@ func (s *Server) ListDirectory(path string) ([]FileEntry, error) {
 		path = "/" + path
 	}
 
-	absPath := utils.Normalize(c.VolumesPath + "/" + s.Uuid + path)
+	absPath := utils.Normalize(c.System.VolumesDirectory + "/" + s.Uuid + path)
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		return nil, errors.New("directory does not exist: " + absPath)
 	}

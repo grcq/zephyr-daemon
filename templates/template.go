@@ -5,7 +5,6 @@ import (
 	"daemon/utils"
 	"encoding/json"
 	"errors"
-	"github.com/apex/log"
 	"os"
 )
 
@@ -48,8 +47,7 @@ type Variable struct {
 
 func GetTemplates() ([]Template, error) {
 	c := *config.Get()
-	data := utils.Normalize(c.DataPath + "/templates")
-	log.Debugf("reading templates from %s", data)
+	data := utils.Normalize(c.System.DataDirectory + "/templates")
 
 	b, err := os.ReadDir(data)
 	if err != nil {
@@ -76,7 +74,7 @@ func GetTemplates() ([]Template, error) {
 
 func AddTemplate(t Template) error {
 	c := *config.Get()
-	data := utils.Normalize(c.DataPath + "/templates")
+	data := utils.Normalize(c.System.DataDirectory + "/templates")
 
 	b, err := json.MarshalIndent(t, "", "    ")
 	if err != nil {
@@ -129,8 +127,8 @@ server-port={$PORT}
 		},
 		Variables: []Variable{
 			{
-				Name:            "SERVER_JAR",
-				Description:     "Server jar",
+				Name:            "Server Jar",
+				Description:     "The server JAR file to use",
 				EnvironmentName: "SERVER_JAR",
 				DefaultValue:    "",
 

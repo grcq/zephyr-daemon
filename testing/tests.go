@@ -2,6 +2,7 @@ package testing
 
 import (
 	"daemon/config"
+	"daemon/env"
 	"daemon/server"
 	"daemon/templates"
 	"encoding/json"
@@ -26,7 +27,7 @@ func createTestTemplate() {
 		return
 	}
 
-	folder := c.DataPath + "/templates"
+	folder := c.System.DataDirectory + "/templates"
 	if _, err := os.Stat(folder); os.IsNotExist(err) {
 		log.Debugf("templates path.go %s does not exist, creating", folder)
 		if err := os.MkdirAll(folder, 0755); err != nil {
@@ -43,8 +44,8 @@ func createTestTemplate() {
 
 func createTestServer() {
 	c := *config.Get()
-	serversPath := c.DataPath + "/servers"
-	volumesPath := c.VolumesPath
+	serversPath := c.System.DataDirectory + "/servers"
+	volumesPath := c.System.VolumesDirectory
 
 	if _, err := os.Stat(serversPath); !os.IsNotExist(err) {
 		log.Debugf("Removing existing servers")
@@ -67,11 +68,17 @@ func createTestServer() {
 		Cpu:    100,
 		Memory: 1024 * 1024 * 1024 * 1024 * 2,
 		Disk:   1024 * 1024 * 1024 * 1024 * 10,
-	}, []server.Allocation{
-		{
-			Ip:      "0.0.0.0",
-			Port:    25565,
-			Primary: true,
+	}, &env.Allocations{
+		DefaultMapping: struct {
+			Ip   string `json:"ip"`
+			Port int    `json:"port"`
+		}{
+			Ip:   "127.0.0.1",
+			Port: 25565,
+		},
+		ForceOutgoingIp: false,
+		Mappings: map[string][]int{
+			"127.0.0.1": {25565},
 		},
 	}, map[string]string{
 		"test": "test",

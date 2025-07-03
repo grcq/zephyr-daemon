@@ -52,7 +52,6 @@ var rootCmd = &cobra.Command{
 		if err = env.ConfigureDocker(context.Background()); err != nil {
 			log.WithError(err).Fatal("failed to configure docker environment")
 		}
-		initFiles(c)
 	},
 	Run: mainRunCmd,
 }
@@ -87,6 +86,7 @@ func mainRunCmd(cmd *cobra.Command, args []string) {
 		testing.RunTests()
 	}
 
+	initFiles(c)
 	load(c)
 
 	s := http.Server{

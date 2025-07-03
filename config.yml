@@ -1,4 +1,4 @@
-token: uya+Pe+fk8J8n2SHwqwh3GaVZ3VdasOd7072R8Q9k7E= # random token for testing purposes, no harm can be done
+token: uya+Pe+fk8J8n2SHwqwh3GaVZ3VdasOd7072R8Q9k7E=
 remote: http://127.0.0.1:8792
 server:
     bind: 127.0.0.1
